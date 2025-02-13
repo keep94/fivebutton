@@ -1,4 +1,4 @@
-module cmd/lock
+module github.com/keep94/fivebutton
 
 go 1.23.0
 
