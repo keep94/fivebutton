@@ -11,6 +11,15 @@ import (
 	"github.com/keep94/itertools"
 )
 
+const (
+
+	// Number of buttons in lock
+	NumButtons = 5
+
+	// Maximum number of buttons that can be pressed in a single key press
+	MaxAtOnce = 2
+)
+
 type node[T any] struct {
 	value T
 	next  *node[T]
@@ -51,8 +60,57 @@ func (q *Queue[T]) Dequeue() T {
 }
 
 // KeyPress represents a key press of a 5 button lock. A KeyPress includes
-// pressing a single button e.g "3" or pressing 2 buttons at once, e.g "25"
-type KeyPress string
+// pressing a single button e.g "3" or pressing multiple buttons at once,
+// e.g "25". The button parameter in the methods for this type is zero
+// based. That is 0 means the "1" button. 1 means the "2" button etc.
+type KeyPress [NumButtons]bool
+
+// SingleKeyPress returns a key press involving a single button.
+func SingleKeyPress(button int) KeyPress {
+	var result KeyPress
+	result[button] = true
+	return result
+}
+
+// Add adds an additional button to returned KeyPress while leaving k
+// unchanged.
+func (k KeyPress) Add(button int) KeyPress {
+	k[button] = true
+	return k
+}
+
+// Highest returns the 0 based index of the highest button pressed in k.
+func (k KeyPress) Highest() int {
+	for i := NumButtons - 1; i >= 0; i-- {
+		if k[i] {
+			return i
+		}
+	}
+	panic("Highest called on zero KeyPress")
+}
+
+// Len returns the number of simultaneously pressed buttons in k.
+func (k KeyPress) Len() int {
+	var result int
+	for i := 0; i < NumButtons; i++ {
+		if k[i] {
+			result++
+		}
+	}
+	return result
+}
+
+// String returns the string representation of k. e.g "3" or "25" where
+// the numerals are one based.
+func (k KeyPress) String() string {
+	buffer := make([]byte, 0, NumButtons)
+	for i := 0; i < NumButtons; i++ {
+		if k[i] {
+			buffer = append(buffer, '1'+byte(i))
+		}
+	}
+	return string(buffer)
+}
 
 // KeySequence represents an ordered sequence of key presses on a 5 button
 // lock.
@@ -70,37 +128,36 @@ func (ks KeySequence) Append(k KeyPress) KeySequence {
 func (ks KeySequence) String() string {
 	parts := make([]string, len(ks))
 	for i := range ks {
-		parts[i] = string(ks[i])
+		parts[i] = ks[i].String()
 	}
 	return strings.Join(parts, "-")
 }
 
-const NumKeys = 5
-
 // Lock represents the state of a 5 button lock. The zero value of Lock
 // represents a 5 button lock with no buttons pushed.
-type Lock [NumKeys]bool
+type Lock [NumButtons]bool
 
 // NextPresses returns all the legal next key presses depending on the state
 // of this lock.
 func (l Lock) NextPresses() iter.Seq[KeyPress] {
 	return func(yield func(KeyPress) bool) {
-		sb := make([]byte, 0, 2)
-		for i := 0; i < NumKeys; i++ {
+		queue := NewQueue[KeyPress]()
+		for i := 0; i < NumButtons; i++ {
 			if !l[i] {
-				sb = sb[:0]
-				sb = append(sb, '0'+byte(i+1))
-				if !yield(KeyPress(sb)) {
-					return
-				}
-				for j := i + 1; j < NumKeys; j++ {
-					if !l[j] {
-						sb = sb[:1]
-						sb = append(sb, '0'+byte(j+1))
-						if !yield(KeyPress(sb)) {
-							return
-						}
-					}
+				queue.Enqueue(SingleKeyPress(i))
+			}
+		}
+		for !queue.IsEmpty() {
+			press := queue.Dequeue()
+			if !yield(press) {
+				return
+			}
+			if press.Len() == MaxAtOnce {
+				continue
+			}
+			for i := press.Highest() + 1; i < NumButtons; i++ {
+				if !l[i] {
+					queue.Enqueue(press.Add(i))
 				}
 			}
 		}
@@ -110,9 +167,10 @@ func (l Lock) NextPresses() iter.Seq[KeyPress] {
 // Apply applies the KeyPress kp to l and returns the resulting
 // lock while leaving l unchanged.
 func (l Lock) Apply(kp KeyPress) Lock {
-	for i := 0; i < len(kp); i++ {
-		posit := int(kp[i]-'0') - 1
-		l[posit] = true
+	for i := 0; i < NumButtons; i++ {
+		if kp[i] {
+			l[i] = true
+		}
 	}
 	return l
 }
