@@ -8,6 +8,7 @@ import (
 	"iter"
 	"strings"
 
+	"github.com/gammazero/deque"
 	"github.com/keep94/itertools"
 )
 
@@ -19,45 +20,6 @@ const (
 	// Maximum number of buttons that can be pressed in a single key press
 	MaxAtOnce = 2
 )
-
-type node[T any] struct {
-	value T
-	next  *node[T]
-}
-
-// Queue represents a FIFO queue.
-type Queue[T any] struct {
-	front *node[T]
-	back  *node[T]
-}
-
-func NewQueue[T any]() *Queue[T] {
-	n := &node[T]{}
-	return &Queue[T]{front: n, back: n}
-}
-
-// IsEmpty returns true if q is empty.
-func (q *Queue[T]) IsEmpty() bool {
-	return (q.front == q.back)
-}
-
-// Enqueue adds a new value to the end of q.
-func (q *Queue[T]) Enqueue(value T) {
-	q.back.value = value
-	n := &node[T]{}
-	q.back.next = n
-	q.back = n
-}
-
-// Dequeue pops the first value off the beginning of q.
-func (q *Queue[T]) Dequeue() T {
-	if q.IsEmpty() {
-		panic("Queue already empty")
-	}
-	result := q.front.value
-	q.front = q.front.next
-	return result
-}
 
 // KeyPress represents a key press of a 5 button lock. A KeyPress includes
 // pressing a single button e.g "3" or pressing multiple buttons at once,
@@ -141,14 +103,14 @@ type Lock [NumButtons]bool
 // of this lock.
 func (l Lock) NextPresses() iter.Seq[KeyPress] {
 	return func(yield func(KeyPress) bool) {
-		queue := NewQueue[KeyPress]()
+		var queue deque.Deque[KeyPress]
 		for i := 0; i < NumButtons; i++ {
 			if !l[i] {
-				queue.Enqueue(SingleKeyPress(i))
+				queue.PushBack(SingleKeyPress(i))
 			}
 		}
-		for !queue.IsEmpty() {
-			press := queue.Dequeue()
+		for queue.Len() > 0 {
+			press := queue.PopFront()
 			if !yield(press) {
 				return
 			}
@@ -157,7 +119,7 @@ func (l Lock) NextPresses() iter.Seq[KeyPress] {
 			}
 			for i := press.Highest() + 1; i < NumButtons; i++ {
 				if !l[i] {
-					queue.Enqueue(press.Add(i))
+					queue.PushBack(press.Add(i))
 				}
 			}
 		}
@@ -185,17 +147,17 @@ type State struct {
 // shorter combination sequences coming first.
 func Combinations() iter.Seq[KeySequence] {
 	return func(yield func(KeySequence) bool) {
-		queue := NewQueue[State]()
-		queue.Enqueue(State{})
-		for !queue.IsEmpty() {
-			state := queue.Dequeue()
+		var queue deque.Deque[State]
+		queue.PushBack(State{})
+		for queue.Len() > 0 {
+			state := queue.PopFront()
 			if !yield(state.Seq) {
 				return
 			}
 			for kp := range state.Lock.NextPresses() {
 				lock := state.Lock.Apply(kp)
 				seq := state.Seq.Append(kp)
-				queue.Enqueue(State{Lock: lock, Seq: seq})
+				queue.PushBack(State{Lock: lock, Seq: seq})
 			}
 		}
 	}
